@@ -26,3 +26,11 @@ Standard SwiftUI sheets on Mac Catalyst can be rigid and don't natively support 
 In Xcode, go to **File > Add Package Dependencies...** and paste the repository URL:
 
 `https://github.com/ezathashim/ResizableSheetOverlay.git`
+
+---
+
+## Compatibility Notes
+
+### Native Modifiers & Toolbars
+- **Toolbars & NavigationStack:** Fully supported inside the overlay. 
+- **Presentation Modifiers:** Applying `.presentationDetents()` or `.presentationSizing()` inside the overlay content will not break or distort the sheet. The overlay retains full control over sizing and dynamic dragging behavior via its binding.
