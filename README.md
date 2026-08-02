@@ -34,3 +34,11 @@ In Xcode, go to **File > Add Package Dependencies...** and paste the repository 
 ### Native Modifiers & Toolbars
 - **Toolbars & NavigationStack:** Fully supported inside the overlay. 
 - **Presentation Modifiers:** Applying `.presentationDetents()` or `.presentationSizing()` inside the overlay content will not break or distort the sheet. The overlay retains full control over sizing and dynamic dragging behavior via its binding.
+
+---
+
+## Demo App
+
+A fully functional sandbox project demonstrating standard overlays, navigation stacks, and gesture behavior is available in a separate repository:
+
+👉 **[ResizableSheetTest Demo App](https://github.com/ezathashim/ResizableSheetTest)**
