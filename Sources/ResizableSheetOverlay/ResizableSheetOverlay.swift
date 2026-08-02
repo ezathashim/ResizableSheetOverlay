@@ -3,6 +3,8 @@
 
 import SwiftUI
 
+#if os(iOS) || targetEnvironment(macCatalyst)
+
     // MARK: - 1. Custom Visual Shape
 public struct CornerGripShape: Shape {
     public var cornerRadius: CGFloat
@@ -229,9 +231,12 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
             .onEnded { _ in
                 dragStartSize = nil
                 isDragging = false
+                activeEdge = .none
             }
     }
 }
+
+#endif
 
     // MARK: - 4. Public Extension
 extension View {
@@ -243,7 +248,7 @@ extension View {
         maxSize: CGSize = CGSize(width: 1000, height: 800),
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
-#if !os(macOS)
+#if os(iOS) || targetEnvironment(macCatalyst)
         self.modifier(
             ResizableSheetOverlay(
                 isPresented: isPresented,
