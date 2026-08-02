@@ -55,7 +55,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
     private let handleThickness: CGFloat = 16.0
     private let cornerZoneRadius: CGFloat = 28.0
     private let sheetCornerRadius: CGFloat = 12.0
-    private let topHeaderExclusionHeight: CGFloat = 50.0
+    private let topHeaderExclusionHeight: CGFloat
     private let edgeHandleLength: CGFloat = 40.0
     private let edgeHandleThickness: CGFloat = 3.0
     
@@ -64,12 +64,14 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
         sheetSize: Binding<CGSize>,
         minSize: CGSize = CGSize(width: 320, height: 240),
         maxSize: CGSize = CGSize(width: 1000, height: 800),
+        topHeaderExclusionHeight: CGFloat = 50,
         @ViewBuilder sheetContent: @escaping () -> SheetContent
     ) {
         self._isPresented = isPresented
         self._sheetSize = sheetSize
         self.minSize = minSize
         self.maxSize = maxSize
+        self.topHeaderExclusionHeight = topHeaderExclusionHeight
         self.sheetContent = sheetContent
     }
     
@@ -246,6 +248,7 @@ extension View {
         sheetSize: Binding<CGSize>,
         minSize: CGSize = CGSize(width: 320, height: 240),
         maxSize: CGSize = CGSize(width: 1000, height: 800),
+        topHeaderExclusionHeight: CGFloat = 50,
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
 #if os(iOS) || targetEnvironment(macCatalyst)
@@ -255,6 +258,7 @@ extension View {
                 sheetSize: sheetSize,
                 minSize: minSize,
                 maxSize: maxSize,
+                topHeaderExclusionHeight: topHeaderExclusionHeight,
                 sheetContent: content
             )
         )
