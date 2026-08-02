@@ -25,5 +25,4 @@ Standard SwiftUI sheets on Mac Catalyst can be rigid and don't natively support 
 
 In Xcode, go to **File > Add Package Dependencies...** and paste the repository URL:
 
-```text
-[https://github.com/YOUR_GITHUB_USERNAME/ResizableSheetOverlay.git](https://github.com/YOUR_GITHUB_USERNAME/ResizableSheetOverlay.git)
+`https://github.com/ezathashim/ResizableSheetOverlay.git`
