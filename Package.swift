@@ -1,10 +1,14 @@
 // swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
+
 import PackageDescription
 
 let package = Package(
     name: "ResizableSheetOverlay",
+    platforms: [
+        .iOS(.v16) // Ensures API availability for modern SwiftUI gestures/hover modifiers
+    ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
@@ -18,7 +22,6 @@ let package = Package(
         .target(
             name: "ResizableSheetOverlay"
         ),
-
     ],
     swiftLanguageModes: [.v6]
 )
