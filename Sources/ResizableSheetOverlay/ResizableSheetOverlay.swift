@@ -267,3 +267,45 @@ extension View {
 #endif
     }
 }
+
+
+extension View {
+        /// Presents a resizable sheet overlay using a binding as a data source for the sheet's content.
+        ///
+        /// - Parameters:
+        ///   - item: A binding to an optional source of truth for the sheet. When `item` is non-nil, the sheet is presented.
+        ///   - sheetSize: A binding to the current size of the resizable sheet container.
+        ///   - minSize: The minimum allowed dimensions for the sheet overlay. Defaults to (320, 240).
+        ///   - maxSize: The maximum allowed dimensions for the sheet overlay. Defaults to (1000, 800).
+        ///   - onDismiss: An optional closure executed when the sheet is dismissed.
+        ///   - content: A closure returning the view hierarchy to display inside the resizable sheet, passing the unwrapped `Item`.
+    public func resizableSheetOverlay<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        sheetSize: Binding<CGSize>,
+        minSize: CGSize = CGSize(width: 320, height: 240),
+        maxSize: CGSize = CGSize(width: 1000, height: 800),
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        let isPresented = Binding<Bool>(
+            get: { item.wrappedValue != nil },
+            set: { newValue in
+                if !newValue {
+                    item.wrappedValue = nil
+                    onDismiss?()
+                }
+            }
+        )
+        
+        return self.resizableSheetOverlay(
+            isPresented: isPresented,
+            sheetSize: sheetSize,
+            minSize: minSize,
+            maxSize: maxSize
+        ) {
+            if let unwrappedItem = item.wrappedValue {
+                content(unwrappedItem)
+            }
+        }
+    }
+}
