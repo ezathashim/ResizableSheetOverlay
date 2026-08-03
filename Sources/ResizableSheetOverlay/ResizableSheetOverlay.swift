@@ -117,7 +117,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
     
         // MARK: - Subviews
     private let handleColor: Color = Color.secondary
-    private let handleActiveOpacity: Double = 1.0
+    private let handleActiveOpacity: Double = 0.7
     
     private var indicatorOverlay: some View {
         GeometryReader { geo in
