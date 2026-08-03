@@ -110,7 +110,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isPresented)
-        .onChange(of: isPresented) { _, presented in
+        .onChange(of: isPresented) { presented in
             if !presented { onDismiss?() }
         }
     }
