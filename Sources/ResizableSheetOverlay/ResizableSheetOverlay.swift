@@ -289,7 +289,10 @@ extension View {
             )
         )
 #else
-        self
+        self.sheet(isPresented: isPresented, onDismiss: onDismiss) {
+            content()
+                .interactiveDismissDisabled(interactiveDismissDisabled)
+        }
 #endif
     }
 }
