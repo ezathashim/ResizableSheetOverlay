@@ -8,6 +8,7 @@ let package = Package(
     name: "ResizableSheetOverlay",
     platforms: [
         .iOS(.v16) // Ensures API availability for modern SwiftUI gestures/hover modifiers
+        .macOS(.v10_15)   // or .v11 / higher to match your app
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
