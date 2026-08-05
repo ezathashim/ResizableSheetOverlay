@@ -106,13 +106,23 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
                 )
                 .overlay(indicatorOverlay)
                 .overlay(interactionOverlay)
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
+                .transition(sheetTransition)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isPresented)
         .onChange(of: isPresented) { presented in
             if !presented { onDismiss?() }
         }
+    }
+    
+    private var sheetTransition: AnyTransition {
+#if targetEnvironment(macCatalyst)
+            // macOS sheet: drops from the top edge, retracts upward on dismiss
+        .move(edge: .top).combined(with: .opacity)
+#else
+            // iOS sheet: rises from the bottom edge
+        .move(edge: .bottom).combined(with: .opacity)
+#endif
     }
     
         // MARK: - Subviews
