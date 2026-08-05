@@ -81,6 +81,8 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
         self.sheetContent = sheetContent
     }
     
+    private let animationDuration: TimeInterval = 0.2
+    
     public func body(content: Content) -> some View {
         ZStack {
             content
@@ -90,7 +92,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
                     .ignoresSafeArea()
                     .onTapGesture {
                         guard !interactiveDismissDisabled else { return }
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        withAnimation(.easeOut(duration: animationDuration)) {
                             isPresented = false
                         }
                     }
@@ -109,7 +111,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
                 .transition(sheetTransition)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isPresented)
+        .animation(.easeInOut(duration: animationDuration), value: isPresented)
         .onChange(of: isPresented) { presented in
             if !presented { onDismiss?() }
         }
@@ -155,7 +157,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
                     .opacity(activeEdge == .corner ? handleActiveOpacity : 0.0)
             }
             .animation(isDragging ? nil : .linear(duration: 0.05), value: hoverLocation)
-            .animation(.easeInOut(duration: 0.22), value: activeEdge)
+            .animation(.easeInOut(duration: animationDuration), value: activeEdge)
         }
         .allowsHitTesting(false)
     }
