@@ -81,22 +81,62 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
         self.sheetContent = sheetContent
     }
     
-    private let animationDuration: TimeInterval = 0.2
+        // MARK: - Animation timing (fractions of one total duration)
+    
+    private let totalDuration: TimeInterval = 0.5
+    
+        // Card moves with a non-bouncy (critically-damped) spring — the same
+        // curve SwiftUI uses for native sheet presentation. Front-loads the
+        // distance and settles cleanly, so less of the travel is perceived.
+    private var moveAnimation: Animation {
+        .smooth(duration: totalDuration)
+    }
+        // Card becomes visible in the back half of the move, landing as it settles.
+    private var cardFadeAnimation: Animation {
+        .easeIn(duration: totalDuration * 0.5).delay(totalDuration * 0.5)
+    }
+        // Scrim fades in late, arriving with the card.
+    private var scrimAnimation: Animation {
+        .easeIn(duration: totalDuration * 0.6).delay(totalDuration * 0.35)
+    }
+    
+        // Off-screen offset for the card before it slides in.
+        // A modest fixed distance — native sheets travel a short way, not a
+        // full sheet height. Catalyst: from the top (macOS convention).
+        // iOS: from the bottom.
+    private var hiddenOffset: CGFloat {
+#if targetEnvironment(macCatalyst)
+        return -120
+#else
+        return 120
+#endif
+    }
+    
+        // MARK: - Internal presentation state
+    
+        // Drives the animated properties. Separate from `isPresented` so the
+        // exit animation can play before the card unmounts.
+    @State private var shown = false
+        // Controls mount/unmount. Kept alive through the exit animation, then
+        // cleared on completion.
+    @State private var mounted = false
     
     public func body(content: Content) -> some View {
         ZStack {
             content
             
-            if isPresented {
+            if mounted {
+                    // Scrim
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
+                    .opacity(shown ? 1 : 0)
+                    .animation(scrimAnimation, value: shown)
                     .onTapGesture {
                         guard !interactiveDismissDisabled else { return }
-                        withAnimation(.easeOut(duration: animationDuration)) {
-                            isPresented = false
-                        }
+                        dismiss()
                     }
                 
+                    // Card
                 VStack(spacing: 0) {
                     sheetContent()
                 }
@@ -108,23 +148,46 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
                 )
                 .overlay(indicatorOverlay)
                 .overlay(interactionOverlay)
-                .transition(sheetTransition)
+                .opacity(shown ? 1 : 0)
+                .animation(cardFadeAnimation, value: shown)
+                .offset(y: shown ? 0 : hiddenOffset)
+                .animation(moveAnimation, value: shown)
             }
         }
-        .animation(.easeInOut(duration: animationDuration), value: isPresented)
-        .onChange(of: isPresented) { presented in
-            if !presented { onDismiss?() }
+        .onChange(of: isPresented) { _, newValue in
+            if newValue {
+                present()
+            } else {
+                dismiss()
+            }
+        }
+        .onAppear {
+                // Handle the case where isPresented starts true.
+            if isPresented { present() }
         }
     }
     
-    private var sheetTransition: AnyTransition {
-#if targetEnvironment(macCatalyst)
-            // macOS sheet: drops from the top edge, retracts upward on dismiss
-        .move(edge: .top).combined(with: .opacity)
-#else
-            // iOS sheet: rises from the bottom edge
-        .move(edge: .bottom).combined(with: .opacity)
-#endif
+        // MARK: - Present / dismiss sequencing
+    
+    private func present() {
+        guard !mounted else { return }
+        mounted = true
+            // Mount first, then flip `shown` next runloop so the animation
+            // has stable "hidden" values to animate FROM.
+        DispatchQueue.main.async {
+            shown = true
+        }
+    }
+    
+    private func dismiss() {
+        guard mounted else { return }
+        withAnimation(moveAnimation) {
+            shown = false
+        } completion: {
+            mounted = false
+            if isPresented { isPresented = false }
+            onDismiss?()
+        }
     }
     
         // MARK: - Subviews
@@ -157,7 +220,7 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
                     .opacity(activeEdge == .corner ? handleActiveOpacity : 0.0)
             }
             .animation(isDragging ? nil : .linear(duration: 0.05), value: hoverLocation)
-            .animation(.easeInOut(duration: animationDuration), value: activeEdge)
+            .animation(.easeInOut(duration: 0.22), value: activeEdge)
         }
         .allowsHitTesting(false)
     }
