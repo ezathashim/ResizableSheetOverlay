@@ -38,29 +38,258 @@ private enum ActiveEdge {
     case corner
 }
 
-    // MARK: - 3. Resizable Sheet ViewModifier
+    // MARK: - Shared appearance / timing constants
+private enum SheetChrome {
+    static let handleThickness: CGFloat = 16.0
+    static let cornerZoneRadius: CGFloat = 28.0
+    static let sheetCornerRadius: CGFloat = 12.0
+    static let edgeHandleLength: CGFloat = 40.0
+    static let edgeHandleThickness: CGFloat = 3.0
+    static let handleColor: Color = Color.secondary
+    static let handleActiveOpacity: Double = 0.7
+
+    static let totalDuration: TimeInterval = 0.5
+
+    static var moveAnimation: Animation { .smooth(duration: totalDuration) }
+    static var cardFadeAnimation: Animation {
+        .easeIn(duration: totalDuration * 0.5).delay(totalDuration * 0.5)
+    }
+    static var scrimAnimation: Animation {
+        .easeIn(duration: totalDuration * 0.6).delay(totalDuration * 0.35)
+    }
+    static var hiddenOffset: CGFloat {
+#if targetEnvironment(macCatalyst)
+        -120
+#else
+        120
+#endif
+    }
+}
+
+    // MARK: - Resize interaction (shared drag/hover handles)
+    //
+    // The handles + drag gesture are identical for both the Bool and item
+    // sheets, so they live in one modifier applied to the card. It writes the
+    // dragged size back through the `size` binding.
+private struct ResizeHandles: ViewModifier {
+    @Binding var size: CGSize
+    let minSize: CGSize
+    let maxSize: CGSize
+    let topHeaderExclusionHeight: CGFloat
+
+    @State private var dragStartSize: CGSize?
+    @State private var activeEdge: ActiveEdge = .none
+    @State private var hoverLocation: CGPoint = .zero
+    @State private var isDragging = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(indicatorOverlay)
+            .overlay(interactionOverlay)
+    }
+
+    private var indicatorOverlay: some View {
+        GeometryReader { geo in
+            ZStack {
+                Capsule()
+                    .fill(SheetChrome.handleColor)
+                    .frame(width: SheetChrome.edgeHandleThickness, height: SheetChrome.edgeHandleLength)
+                    .position(
+                        x: geo.size.width - (SheetChrome.edgeHandleThickness / 2),
+                        y: clampedTrailingY(for: hoverLocation.y, height: geo.size.height)
+                    )
+                    .opacity(activeEdge == .trailing ? SheetChrome.handleActiveOpacity : 0.0)
+
+                Capsule()
+                    .fill(SheetChrome.handleColor)
+                    .frame(width: SheetChrome.edgeHandleLength, height: SheetChrome.edgeHandleThickness)
+                    .position(
+                        x: clampedBottomX(for: hoverLocation.x, width: geo.size.width),
+                        y: geo.size.height - (SheetChrome.edgeHandleThickness / 2)
+                    )
+                    .opacity(activeEdge == .bottom ? SheetChrome.handleActiveOpacity : 0.0)
+
+                CornerGripShape(cornerRadius: SheetChrome.sheetCornerRadius, inset: 4)
+                    .stroke(SheetChrome.handleColor, style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+                    .opacity(activeEdge == .corner ? SheetChrome.handleActiveOpacity : 0.0)
+            }
+            .animation(isDragging ? nil : .linear(duration: 0.05), value: hoverLocation)
+            .animation(.easeInOut(duration: 0.22), value: activeEdge)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var interactionOverlay: some View {
+        GeometryReader { geo in
+            Color.clear
+                .contentShape(
+                    Path { path in
+                        let rect = CGRect(origin: .zero, size: geo.size)
+                        path.addRect(
+                            CGRect(
+                                x: rect.width - SheetChrome.handleThickness,
+                                y: topHeaderExclusionHeight,
+                                width: SheetChrome.handleThickness,
+                                height: max(0, rect.height - topHeaderExclusionHeight)
+                            )
+                        )
+                        path.addRect(
+                            CGRect(
+                                x: 0,
+                                y: rect.height - SheetChrome.handleThickness,
+                                width: rect.width,
+                                height: SheetChrome.handleThickness
+                            )
+                        )
+                    }
+                )
+                .onContinuousHover { phase in
+                    guard !isDragging else { return }
+                    switch phase {
+                        case .active(let location):
+                            hoverLocation = location
+                            activeEdge = evaluateEdge(at: location, in: geo.size)
+                        case .ended:
+                            activeEdge = .none
+                    }
+                }
+                .highPriorityGesture(unifiedDragGesture)
+        }
+    }
+
+    private func clampedTrailingY(for rawY: CGFloat, height: CGFloat) -> CGFloat {
+        let minY = max(topHeaderExclusionHeight, SheetChrome.sheetCornerRadius + (SheetChrome.edgeHandleLength / 2))
+        let maxY = height - SheetChrome.cornerZoneRadius - (SheetChrome.edgeHandleLength / 2)
+        return min(max(rawY, minY), maxY)
+    }
+
+    private func clampedBottomX(for rawX: CGFloat, width: CGFloat) -> CGFloat {
+        let minX = SheetChrome.sheetCornerRadius + (SheetChrome.edgeHandleLength / 2)
+        let maxX = width - SheetChrome.cornerZoneRadius - (SheetChrome.edgeHandleLength / 2)
+        return min(max(rawX, minX), maxX)
+    }
+
+    private func evaluateEdge(at point: CGPoint, in size: CGSize) -> ActiveEdge {
+        let dx = size.width - point.x
+        let dy = size.height - point.y
+
+        if dx <= SheetChrome.cornerZoneRadius && dy <= SheetChrome.cornerZoneRadius {
+            return .corner
+        }
+        if dx <= SheetChrome.handleThickness && point.y >= topHeaderExclusionHeight && point.y < (size.height - SheetChrome.cornerZoneRadius) {
+            return .trailing
+        }
+        if dy <= SheetChrome.handleThickness && point.x < (size.width - SheetChrome.cornerZoneRadius) {
+            return .bottom
+        }
+        return .none
+    }
+
+    private var unifiedDragGesture: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .local)
+            .onChanged { value in
+                if dragStartSize == nil {
+                    dragStartSize = size
+                    isDragging = true
+                }
+                guard let start = dragStartSize else { return }
+
+                hoverLocation = value.location
+
+                var transaction = Transaction()
+                transaction.animation = nil
+
+                withTransaction(transaction) {
+                    switch activeEdge {
+                        case .trailing:
+                            let newWidth = start.width + value.translation.width
+                            size.width = min(max(minSize.width, newWidth), maxSize.width)
+                        case .bottom:
+                            let newHeight = start.height + value.translation.height
+                            size.height = min(max(minSize.height, newHeight), maxSize.height)
+                        case .corner:
+                            let newWidth = start.width + value.translation.width
+                            let newHeight = start.height + value.translation.height
+                            size.width = min(max(minSize.width, newWidth), maxSize.width)
+                            size.height = min(max(minSize.height, newHeight), maxSize.height)
+                        case .none:
+                            break
+                    }
+                }
+            }
+            .onEnded { _ in
+                dragStartSize = nil
+                isDragging = false
+                activeEdge = .none
+            }
+    }
+}
+
+    // MARK: - Shared card chrome
+    //
+    // The scrim + card + animated present/dismiss, parameterized by the two
+    // state flags (`mounted`, `shown`) the host owns and a dismiss action. Both
+    // the Bool and item sheets render through this, so the animation lives in
+    // exactly one place.
+private struct SheetCardChrome<CardContent: View>: View {
+    let shown: Bool
+    let sheetSize: Binding<CGSize>
+    let minSize: CGSize
+    let maxSize: CGSize
+    let topHeaderExclusionHeight: CGFloat
+    let interactiveDismissDisabled: Bool
+    let onScrimTap: () -> Void
+    @ViewBuilder let card: () -> CardContent
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .opacity(shown ? 1 : 0)
+                .animation(SheetChrome.scrimAnimation, value: shown)
+                .onTapGesture {
+                    guard !interactiveDismissDisabled else { return }
+                    onScrimTap()
+                }
+
+            VStack(spacing: 0) {
+                card()
+            }
+            .frame(width: sheetSize.wrappedValue.width, height: sheetSize.wrappedValue.height)
+            .background(
+                RoundedRectangle(cornerRadius: SheetChrome.sheetCornerRadius)
+                    .fill(Color(uiColor: .systemBackground))
+                    .shadow(color: .black.opacity(0.25), radius: 24, x: 0, y: 12)
+            )
+            .modifier(ResizeHandles(
+                size: sheetSize,
+                minSize: minSize,
+                maxSize: maxSize,
+                topHeaderExclusionHeight: topHeaderExclusionHeight
+            ))
+            .opacity(shown ? 1 : 0)
+            .animation(SheetChrome.cardFadeAnimation, value: shown)
+            .offset(y: shown ? 0 : SheetChrome.hiddenOffset)
+            .animation(SheetChrome.moveAnimation, value: shown)
+        }
+    }
+}
+
+    // MARK: - 3. Bool-driven ViewModifier
 public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
     @Binding public var isPresented: Bool
     @Binding public var sheetSize: CGSize
-    
+
     public let minSize: CGSize
     public let maxSize: CGSize
     public let topHeaderExclusionHeight: CGFloat
     public let interactiveDismissDisabled: Bool
     public let onDismiss: (() -> Void)?
     public let sheetContent: () -> SheetContent
-    
-    @State private var dragStartSize: CGSize?
-    @State private var activeEdge: ActiveEdge = .none
-    @State private var hoverLocation: CGPoint = .zero
-    @State private var isDragging = false
-    
-    private let handleThickness: CGFloat = 16.0
-    private let cornerZoneRadius: CGFloat = 28.0
-    private let sheetCornerRadius: CGFloat = 12.0
-    private let edgeHandleLength: CGFloat = 40.0
-    private let edgeHandleThickness: CGFloat = 3.0
-    
+
+    @State private var shown = false
+    @State private var mounted = false
+
     public init(
         isPresented: Binding<Bool>,
         sheetSize: Binding<CGSize>,
@@ -80,108 +309,41 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
         self.onDismiss = onDismiss
         self.sheetContent = sheetContent
     }
-    
-        // MARK: - Animation timing (fractions of one total duration)
-    
-    private let totalDuration: TimeInterval = 0.5
-    
-        // Card moves with a non-bouncy (critically-damped) spring — the same
-        // curve SwiftUI uses for native sheet presentation. Front-loads the
-        // distance and settles cleanly, so less of the travel is perceived.
-    private var moveAnimation: Animation {
-        .smooth(duration: totalDuration)
-    }
-        // Card becomes visible in the back half of the move, landing as it settles.
-    private var cardFadeAnimation: Animation {
-        .easeIn(duration: totalDuration * 0.5).delay(totalDuration * 0.5)
-    }
-        // Scrim fades in late, arriving with the card.
-    private var scrimAnimation: Animation {
-        .easeIn(duration: totalDuration * 0.6).delay(totalDuration * 0.35)
-    }
-    
-        // Off-screen offset for the card before it slides in.
-        // A modest fixed distance — native sheets travel a short way, not a
-        // full sheet height. Catalyst: from the top (macOS convention).
-        // iOS: from the bottom.
-    private var hiddenOffset: CGFloat {
-#if targetEnvironment(macCatalyst)
-        return -120
-#else
-        return 120
-#endif
-    }
-    
-        // MARK: - Internal presentation state
-    
-        // Drives the animated properties. Separate from `isPresented` so the
-        // exit animation can play before the card unmounts.
-    @State private var shown = false
-        // Controls mount/unmount. Kept alive through the exit animation, then
-        // cleared on completion.
-    @State private var mounted = false
-    
+
     public func body(content: Content) -> some View {
         ZStack {
             content
-            
+
             if mounted {
-                    // Scrim
-                Color.black.opacity(0.35)
-                    .ignoresSafeArea()
-                    .opacity(shown ? 1 : 0)
-                    .animation(scrimAnimation, value: shown)
-                    .onTapGesture {
-                        guard !interactiveDismissDisabled else { return }
-                        dismiss()
-                    }
-                
-                    // Card
-                VStack(spacing: 0) {
-                    sheetContent()
-                }
-                .frame(width: sheetSize.width, height: sheetSize.height)
-                .background(
-                    RoundedRectangle(cornerRadius: sheetCornerRadius)
-                        .fill(Color(uiColor: .systemBackground))
-                        .shadow(color: .black.opacity(0.25), radius: 24, x: 0, y: 12)
+                SheetCardChrome(
+                    shown: shown,
+                    sheetSize: $sheetSize,
+                    minSize: minSize,
+                    maxSize: maxSize,
+                    topHeaderExclusionHeight: topHeaderExclusionHeight,
+                    interactiveDismissDisabled: interactiveDismissDisabled,
+                    onScrimTap: { dismiss() },
+                    card: sheetContent
                 )
-                .overlay(indicatorOverlay)
-                .overlay(interactionOverlay)
-                .opacity(shown ? 1 : 0)
-                .animation(cardFadeAnimation, value: shown)
-                .offset(y: shown ? 0 : hiddenOffset)
-                .animation(moveAnimation, value: shown)
             }
         }
         .onChange(of: isPresented) { _, newValue in
-            if newValue {
-                present()
-            } else {
-                dismiss()
-            }
+            if newValue { present() } else { dismiss() }
         }
         .onAppear {
-                // Handle the case where isPresented starts true.
             if isPresented { present() }
         }
     }
-    
-        // MARK: - Present / dismiss sequencing
-    
+
     private func present() {
         guard !mounted else { return }
         mounted = true
-            // Mount first, then flip `shown` next runloop so the animation
-            // has stable "hidden" values to animate FROM.
-        DispatchQueue.main.async {
-            shown = true
-        }
+        DispatchQueue.main.async { shown = true }
     }
-    
+
     private func dismiss() {
         guard mounted else { return }
-        withAnimation(moveAnimation) {
+        withAnimation(SheetChrome.moveAnimation) {
             shown = false
         } completion: {
             mounted = false
@@ -189,149 +351,101 @@ public struct ResizableSheetOverlay<SheetContent: View>: ViewModifier {
             onDismiss?()
         }
     }
-    
-        // MARK: - Subviews
-    private let handleColor: Color = Color.secondary
-    private let handleActiveOpacity: Double = 0.7
-    
-    private var indicatorOverlay: some View {
-        GeometryReader { geo in
-            ZStack {
-                Capsule()
-                    .fill(handleColor)
-                    .frame(width: edgeHandleThickness, height: edgeHandleLength)
-                    .position(
-                        x: geo.size.width - (edgeHandleThickness / 2),
-                        y: clampedTrailingY(for: hoverLocation.y, height: geo.size.height)
-                    )
-                    .opacity(activeEdge == .trailing ? handleActiveOpacity : 0.0)
-                
-                Capsule()
-                    .fill(handleColor)
-                    .frame(width: edgeHandleLength, height: edgeHandleThickness)
-                    .position(
-                        x: clampedBottomX(for: hoverLocation.x, width: geo.size.width),
-                        y: geo.size.height - (edgeHandleThickness / 2)
-                    )
-                    .opacity(activeEdge == .bottom ? handleActiveOpacity : 0.0)
-                
-                CornerGripShape(cornerRadius: sheetCornerRadius, inset: 4)
-                    .stroke(handleColor, style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
-                    .opacity(activeEdge == .corner ? handleActiveOpacity : 0.0)
-            }
-            .animation(isDragging ? nil : .linear(duration: 0.05), value: hoverLocation)
-            .animation(.easeInOut(duration: 0.22), value: activeEdge)
-        }
-        .allowsHitTesting(false)
+}
+
+    // MARK: - 3b. Item-driven ViewModifier
+    //
+    // First-class item presentation — NOT derived from a Bool binding. Keys on
+    // the item, retains it in `presentedItem` so the card renders through the
+    // exit animation, and clears the external `item` only at animation
+    // completion. Setting `item` to nil externally animates the dismissal.
+public struct ResizableItemSheetOverlay<Item: Identifiable, SheetContent: View>: ViewModifier {
+    @Binding public var item: Item?
+    @Binding public var sheetSize: CGSize
+
+    public let minSize: CGSize
+    public let maxSize: CGSize
+    public let topHeaderExclusionHeight: CGFloat
+    public let interactiveDismissDisabled: Bool
+    public let onDismiss: (() -> Void)?
+    public let sheetContent: (Item) -> SheetContent
+
+    @State private var shown = false
+    @State private var mounted = false
+        // Retained so the card renders through the exit animation after `item`
+        // is cleared.
+    @State private var presentedItem: Item?
+
+    public init(
+        item: Binding<Item?>,
+        sheetSize: Binding<CGSize>,
+        minSize: CGSize = CGSize(width: 320, height: 240),
+        maxSize: CGSize = CGSize(width: 1000, height: 800),
+        topHeaderExclusionHeight: CGFloat = 50,
+        interactiveDismissDisabled: Bool = false,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder sheetContent: @escaping (Item) -> SheetContent
+    ) {
+        self._item = item
+        self._sheetSize = sheetSize
+        self.minSize = minSize
+        self.maxSize = maxSize
+        self.topHeaderExclusionHeight = topHeaderExclusionHeight
+        self.interactiveDismissDisabled = interactiveDismissDisabled
+        self.onDismiss = onDismiss
+        self.sheetContent = sheetContent
     }
-    
-    private var interactionOverlay: some View {
-        GeometryReader { geo in
-            Color.clear
-                .contentShape(
-                    Path { path in
-                        let rect = CGRect(origin: .zero, size: geo.size)
-                        path.addRect(
-                            CGRect(
-                                x: rect.width - handleThickness,
-                                y: topHeaderExclusionHeight,
-                                width: handleThickness,
-                                height: max(0, rect.height - topHeaderExclusionHeight)
-                            )
-                        )
-                        path.addRect(
-                            CGRect(
-                                x: 0,
-                                y: rect.height - handleThickness,
-                                width: rect.width,
-                                height: handleThickness
-                            )
-                        )
-                    }
+
+    public func body(content: Content) -> some View {
+        ZStack {
+            content
+
+            if mounted, let presentedItem {
+                SheetCardChrome(
+                    shown: shown,
+                    sheetSize: $sheetSize,
+                    minSize: minSize,
+                    maxSize: maxSize,
+                    topHeaderExclusionHeight: topHeaderExclusionHeight,
+                    interactiveDismissDisabled: interactiveDismissDisabled,
+                    onScrimTap: { dismiss() },
+                    card: { sheetContent(presentedItem) }
                 )
-                .onContinuousHover { phase in
-                    guard !isDragging else { return }
-                    switch phase {
-                        case .active(let location):
-                            hoverLocation = location
-                            activeEdge = evaluateEdge(at: location, in: geo.size)
-                        case .ended:
-                            activeEdge = .none
-                    }
-                }
-                .highPriorityGesture(unifiedDragGesture)
-        }
-    }
-    
-        // MARK: - Geometry
-    
-    private func clampedTrailingY(for rawY: CGFloat, height: CGFloat) -> CGFloat {
-        let minY = max(topHeaderExclusionHeight, sheetCornerRadius + (edgeHandleLength / 2))
-        let maxY = height - cornerZoneRadius - (edgeHandleLength / 2)
-        return min(max(rawY, minY), maxY)
-    }
-    
-    private func clampedBottomX(for rawX: CGFloat, width: CGFloat) -> CGFloat {
-        let minX = sheetCornerRadius + (edgeHandleLength / 2)
-        let maxX = width - cornerZoneRadius - (edgeHandleLength / 2)
-        return min(max(rawX, minX), maxX)
-    }
-    
-    private func evaluateEdge(at point: CGPoint, in size: CGSize) -> ActiveEdge {
-        let dx = size.width - point.x
-        let dy = size.height - point.y
-        
-        if dx <= cornerZoneRadius && dy <= cornerZoneRadius {
-            return .corner
-        }
-        if dx <= handleThickness && point.y >= topHeaderExclusionHeight && point.y < (size.height - cornerZoneRadius) {
-            return .trailing
-        }
-        if dy <= handleThickness && point.x < (size.width - cornerZoneRadius) {
-            return .bottom
-        }
-        return .none
-    }
-    
-        // MARK: - Gesture
-    
-    private var unifiedDragGesture: some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .local)
-            .onChanged { value in
-                if dragStartSize == nil {
-                    dragStartSize = sheetSize
-                    isDragging = true
-                }
-                guard let start = dragStartSize else { return }
-                
-                hoverLocation = value.location
-                
-                var transaction = Transaction()
-                transaction.animation = nil
-                
-                withTransaction(transaction) {
-                    switch activeEdge {
-                        case .trailing:
-                            let newWidth = start.width + value.translation.width
-                            sheetSize.width = min(max(minSize.width, newWidth), maxSize.width)
-                        case .bottom:
-                            let newHeight = start.height + value.translation.height
-                            sheetSize.height = min(max(minSize.height, newHeight), maxSize.height)
-                        case .corner:
-                            let newWidth = start.width + value.translation.width
-                            let newHeight = start.height + value.translation.height
-                            sheetSize.width = min(max(minSize.width, newWidth), maxSize.width)
-                            sheetSize.height = min(max(minSize.height, newHeight), maxSize.height)
-                        case .none:
-                            break
-                    }
-                }
             }
-            .onEnded { _ in
-                dragStartSize = nil
-                isDragging = false
-                activeEdge = .none
+        }
+        .onChange(of: item?.id) { _, newID in
+            if newID != nil {
+                present()
+            } else {
+                dismiss()
             }
+        }
+        .onAppear {
+            if item != nil { present() }
+        }
+    }
+
+    private func present() {
+        if mounted {
+                // Item swapped while already shown: just update the rendered value.
+            presentedItem = item
+            return
+        }
+        presentedItem = item
+        mounted = true
+        DispatchQueue.main.async { shown = true }
+    }
+
+    private func dismiss() {
+        guard mounted else { return }
+        withAnimation(SheetChrome.moveAnimation) {
+            shown = false
+        } completion: {
+            mounted = false
+            presentedItem = nil
+            if item != nil { item = nil }
+            onDismiss?()
+        }
     }
 }
 
@@ -374,17 +488,19 @@ extension View {
 
     // MARK: - 5. Public Extension (Item)
 extension View {
-        /// Presents a resizable sheet overlay using a binding as a data source for the sheet's content.
+        /// Presents a resizable sheet overlay driven by an optional Identifiable item.
+        /// When `item` is non-nil the sheet is presented; setting it to nil animates the dismissal.
         ///
         /// - Parameters:
-        ///   - item: A binding to an optional source of truth for the sheet. When `item` is non-nil, the sheet is presented.
+        ///   - item: A binding to an optional source of truth for the sheet.
         ///   - sheetSize: A binding to the current size of the resizable sheet container.
-        ///   - minSize: The minimum allowed dimensions for the sheet overlay. Defaults to (320, 240).
-        ///   - maxSize: The maximum allowed dimensions for the sheet overlay. Defaults to (1000, 800).
-        ///   - topHeaderExclusionHeight: Height of the non-draggable top region, reserved for navigation bars and close buttons. Defaults to 50.
-        ///   - interactiveDismissDisabled: When `true`, tapping the dimmed background does not dismiss the sheet. Defaults to `false`.
-        ///   - onDismiss: An optional closure executed when the sheet is dismissed.
-        ///   - content: A closure returning the view hierarchy to display inside the resizable sheet, passing the unwrapped `Item`.
+        ///   - minSize: The minimum allowed dimensions. Defaults to (320, 240).
+        ///   - maxSize: The maximum allowed dimensions. Defaults to (1000, 800).
+        ///   - topHeaderExclusionHeight: Height of the non-draggable top region. Defaults to 50.
+        ///   - interactiveDismissDisabled: When `true`, tapping the dimmed background does not dismiss. Defaults to `false`.
+        ///   - onDismiss: Closure executed after the exit animation completes.
+        ///   - content: Content builder receiving the unwrapped `Item`.
+    @ViewBuilder
     public func resizableSheetOverlay<Item: Identifiable, Content: View>(
         item: Binding<Item?>,
         sheetSize: Binding<CGSize>,
@@ -395,27 +511,24 @@ extension View {
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
-        let isPresented = Binding<Bool>(
-            get: { item.wrappedValue != nil },
-            set: { newValue in
-                if !newValue {
-                    item.wrappedValue = nil
-                }
-            }
+#if os(iOS) || targetEnvironment(macCatalyst)
+        self.modifier(
+            ResizableItemSheetOverlay(
+                item: item,
+                sheetSize: sheetSize,
+                minSize: minSize,
+                maxSize: maxSize,
+                topHeaderExclusionHeight: topHeaderExclusionHeight,
+                interactiveDismissDisabled: interactiveDismissDisabled,
+                onDismiss: onDismiss,
+                sheetContent: content
+            )
         )
-        
-        return self.resizableSheetOverlay(
-            isPresented: isPresented,
-            sheetSize: sheetSize,
-            minSize: minSize,
-            maxSize: maxSize,
-            topHeaderExclusionHeight: topHeaderExclusionHeight,
-            interactiveDismissDisabled: interactiveDismissDisabled,
-            onDismiss: onDismiss
-        ) {
-            if let unwrappedItem = item.wrappedValue {
-                content(unwrappedItem)
-            }
+#else
+        self.sheet(item: item, onDismiss: onDismiss) { value in
+            content(value)
+                .interactiveDismissDisabled(interactiveDismissDisabled)
         }
+#endif
     }
 }
